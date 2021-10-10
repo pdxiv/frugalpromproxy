@@ -155,6 +155,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		} else {
 			// copy current data to historical data and
 			// reset unchangedness counter in historical data.
+			scrapeTarget.data[name] = data[name]
 			var x = scrapeTarget.data[name]
 			x.unchangedCounter = 0
 			scrapeTarget.data[name] = x
@@ -183,7 +184,6 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	// fmt.Print(metricOutput)
 	fmt.Fprintf(w, metricOutput)
 
 	// fmt.Println(time.Now().UnixMilli())
