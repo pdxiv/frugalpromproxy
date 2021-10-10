@@ -1,0 +1,13 @@
+[Unit]
+Description=An experiment to see what happens if you try to throttle Prometheus exporter metrics 
+
+[Service]
+Restart=always
+User=prometheus
+ExecStart=/usr/bin/frugalpromproxy 9100 19100
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=20s
+SendSIGKILL=no
+
+[Install]
+WantedBy=multi-user.target
