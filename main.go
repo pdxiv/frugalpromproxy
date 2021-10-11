@@ -65,7 +65,6 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 	}
 
 	stringBody := string(body)
-	// fmt.Fprintf(w, stringBody)
 
 	data := make(map[string]MetricData)
 
@@ -185,9 +184,6 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		}
 	}
 	fmt.Fprintf(w, metricOutput)
-
-	// fmt.Println(time.Now().UnixMilli())
-
 }
 
 func main() {
