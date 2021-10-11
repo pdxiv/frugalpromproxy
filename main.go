@@ -131,7 +131,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 			// * threshold value, assume all values are stale to begin with
 
 			if startStale {
-				content.unchangedCounter = 10
+				content.unchangedCounter = staleThreshold
 			} else {
 				content.unchangedCounter = -1
 			}
