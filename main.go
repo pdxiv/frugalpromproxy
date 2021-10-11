@@ -170,7 +170,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		if content.commentType == summary { // not supported, because complicated
 			continue
 		}
-		if content.unchangedCounter > staleThreshold {
+		if scrapeTarget.data[name].unchangedCounter > staleThreshold {
 			continue
 		}
 
