@@ -21,7 +21,7 @@ var portPair []int
 var linePattern, typePattern, helpPattern *regexp.Regexp
 
 const basePath = `/metrics`
-const staleThreshold = 10 // This decides how many times a value can be unchanged before it is blocked from sending
+const staleThreshold = 240 // This decides how many times a value can be unchanged before it is blocked from sending
 const startStale = true
 
 type MetricType int32
