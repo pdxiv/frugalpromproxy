@@ -163,7 +163,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 	}
 
 	var metricOutput string
-	for name, content := range scrapeTarget.data {
+	for name, content := range data {
 		if content.commentType == histogram { // not supported, because complicated
 			continue
 		}
