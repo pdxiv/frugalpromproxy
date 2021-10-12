@@ -204,8 +204,6 @@ func main() {
 	}
 
 	for len(portPair) >= 2 {
-		fmt.Println(portPair)
-
 		var remotePort, localPort int
 		remotePort, portPair = portPair[0], portPair[1:]
 		localPort, portPair = portPair[0], portPair[1:]
