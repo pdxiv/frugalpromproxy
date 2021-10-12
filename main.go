@@ -219,9 +219,9 @@ func main() {
 func listener(queryPort, listenport int) {
 	scrapeTarget := &ScrapeTarget{queryPort: queryPort}
 	scrapeTarget.data = make(map[string]MetricData)
-
-	http.HandleFunc(basePath, scrapeTarget.handler)
-	log.Fatal(http.ListenAndServe(`:`+strconv.Itoa(listenport), nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc(basePath, scrapeTarget.handler)
+	log.Fatal(http.ListenAndServe(`:`+strconv.Itoa(listenport), mux))
 }
 
 func WaitForCtrlC() {
