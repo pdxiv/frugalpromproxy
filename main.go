@@ -48,9 +48,13 @@ type ScrapeTarget struct {
 }
 
 type MetricData struct {
-	commentType      MetricType
-	commentHelp      string
-	label            map[string]float64
+	commentType MetricType
+	commentHelp string
+	label       map[string]LabelSet
+}
+
+type LabelSet struct {
+	value            float64
 	unchangedCounter int64
 }
 
@@ -71,6 +75,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 	scanner := bufio.NewScanner(strings.NewReader(stringBody))
 
 	// The below loop is unoptimized. Optimization is a "to-do".
+	// Read all the data from the http page into an internal data structure: "data"
 	for scanner.Scan() {
 
 		lineResult := linePattern.FindStringSubmatch(scanner.Text())
@@ -80,10 +85,13 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 			if value, err := strconv.ParseFloat(lineResult[3], 64); err == nil {
 				if len(data[lineResult[1]].label) == 0 {
 					var x = data[lineResult[1]]
-					x.label = make(map[string]float64)
+					x.label = make(map[string]LabelSet)
 					data[lineResult[1]] = x
 				}
-				data[lineResult[1]].label[lineResult[2]] = value
+				var x = data[lineResult[1]].label[lineResult[2]]
+				x.value = value
+
+				data[lineResult[1]].label[lineResult[2]] = x
 			}
 		}
 
@@ -119,8 +127,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 	}
 
 	for name, content := range data {
-
-		// Metric name doesn't exist yet? Create it!
+		// Metric name doesn't exist yet? Create it and initialize unchangedCounter for every label
 		if _, ok := scrapeTarget.data[name]; !ok {
 			// Unchanged counter value should be initialized differently if we want
 			// to start with assuming that all value are stale, or if we want to
@@ -129,35 +136,34 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 			// * -1, assume all values are live
 			// * threshold value, assume all values are stale to begin with
 
-			if startStale {
-				content.unchangedCounter = staleThreshold
-			} else {
-				content.unchangedCounter = -1
+			for thing, labelSet := range content.label {
+				if startStale {
+					labelSet.unchangedCounter = staleThreshold
+					content.label[thing] = labelSet
+				} else {
+					labelSet.unchangedCounter = -1
+					content.label[thing] = labelSet
+				}
 			}
-
 			scrapeTarget.data[name] = content
-		}
 
+		}
 		// Check if value is unchanged compared to previous value
-		unchanged := true
-		for label, value := range content.label {
-			if scrapeTarget.data[name].label[label] != value {
-				unchanged = false
-			}
-		}
+		for label := range content.label {
+			if scrapeTarget.data[name].label[label].value != content.label[label].value {
+				var y = scrapeTarget.data[name]
+				var x = y.label[label]
+				x.unchangedCounter = 0
+				y.label[label] = x
+				scrapeTarget.data[name] = y
+			} else {
 
-		if unchanged {
-			// increment unchangedness counter in historical data.
-			var x = scrapeTarget.data[name]
-			x.unchangedCounter++
-			scrapeTarget.data[name] = x
-		} else {
-			// copy current data to historical data and
-			// reset unchangedness counter in historical data.
-			scrapeTarget.data[name] = data[name]
-			var x = scrapeTarget.data[name]
-			x.unchangedCounter = 0
-			scrapeTarget.data[name] = x
+				var y = scrapeTarget.data[name]
+				var x = y.label[label]
+				x.unchangedCounter++
+				y.label[label] = x
+				scrapeTarget.data[name] = y
+			}
 		}
 	}
 
@@ -169,19 +175,26 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		if content.commentType == summary { // not supported, because complicated
 			continue
 		}
-		if scrapeTarget.data[name].unchangedCounter > staleThreshold {
-			continue
-		}
 
-		metricOutput += fmt.Sprintln(`# HELP ` + name + ` ` + content.commentHelp)
-		metricOutput += fmt.Sprintln(`# TYPE ` + name + ` ` + typeText[content.commentType])
+		var labelText string
+		isAnyLabelActive := false
 		for label, value := range content.label {
-			if label != `` {
-				metricOutput += fmt.Sprintln(name+`{`+label+`}`, value)
-			} else {
-				metricOutput += fmt.Sprintln(name, value)
+			if scrapeTarget.data[name].label[label].unchangedCounter <= staleThreshold {
+				isAnyLabelActive = true
+				if label != `` {
+					labelText += fmt.Sprintln(name+`{`+label+`}`, value.value)
+				} else {
+					labelText += fmt.Sprintln(name, value.value)
+				}
 			}
 		}
+
+		if isAnyLabelActive {
+			labelText = fmt.Sprintln(`# TYPE `+name+` `+typeText[content.commentType]) + labelText
+			labelText = fmt.Sprintln(`# HELP `+name+` `+content.commentHelp) + labelText
+		}
+
+		metricOutput += labelText
 	}
 	fmt.Fprintf(w, metricOutput)
 }
