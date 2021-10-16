@@ -196,7 +196,7 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 
 		metricOutput += labelText
 	}
-	fmt.Fprintf(w, metricOutput)
+	fmt.Fprint(w, metricOutput)
 }
 
 func main() {
