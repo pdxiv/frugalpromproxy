@@ -24,6 +24,21 @@ const basePath = `/metrics`
 const staleThreshold = 240 // This decides how many times a value can be unchanged before it is blocked from sending
 const startStale = true
 
+type DataOperation int64
+
+const (
+	Get DataOperation = iota
+	Set
+)
+
+type DataMessage struct {
+	operation DataOperation
+	port      int
+	key       string
+	data      map[string]MetricData
+	sender    chan MetricData
+}
+
 type MetricType int32
 
 const (
@@ -43,8 +58,9 @@ var typeText = [...]string{
 }
 
 type ScrapeTarget struct {
-	queryPort int
-	data      map[string]MetricData
+	queryPort      int
+	data           map[string]MetricData
+	requestChannel chan DataMessage
 }
 
 type MetricData struct {
@@ -126,38 +142,49 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// for name, content := range data {
 	for name, content := range data {
-		// Metric name doesn't exist yet? Create it and initialize unchangedCounter for every label
-		if _, ok := scrapeTarget.data[name]; !ok {
-			// Unchanged counter value should be initialized differently if we want
-			// to start with assuming that all value are stale, or if we want to
-			// start by assuming that all values are "live" and then gradually
-			// put them in "stale" status.
-			// * -1, assume all values are live
-			// * threshold value, assume all values are stale to begin with
+		returnChannel := make(chan MetricData)
+		scrapeTarget.requestChannel <- DataMessage{Get, scrapeTarget.queryPort, name, nil, returnChannel}
 
-			for thing, labelSet := range content.label {
-				if startStale {
-					labelSet.unchangedCounter = staleThreshold
-					content.label[thing] = labelSet
-				} else {
-					labelSet.unchangedCounter = -1
-					content.label[thing] = labelSet
+		content2 := <-returnChannel
+
+		/*
+			// Metric name doesn't exist yet? Create it and initialize unchangedCounter for every label
+			if _, ok := scrapeTarget.data[name]; !ok {
+				// Unchanged counter value should be initialized differently if we want
+				// to start with assuming that all value are stale, or if we want to
+				// start by assuming that all values are "live" and then gradually
+				// put them in "stale" status.
+				// * -1, assume all values are live
+				// * threshold value, assume all values are stale to begin with
+
+				for thing, labelSet := range content.label {
+					if startStale {
+						labelSet.unchangedCounter = staleThreshold
+						content.label[thing] = labelSet
+					} else {
+						labelSet.unchangedCounter = -1
+						content.label[thing] = labelSet
+					}
 				}
-			}
-			scrapeTarget.data[name] = content
+				scrapeTarget.data[name] = content
 
-		}
+			}
+		*/
+
+		fmt.Println("comparing now", content2, content)
 		// Check if value is unchanged compared to previous value
 		for label := range content.label {
 			if scrapeTarget.data[name].label[label].value != content.label[label].value {
+				fmt.Println("*** Not changed!!!")
 				var y = scrapeTarget.data[name]
 				var x = y.label[label]
 				x.unchangedCounter = 0
 				y.label[label] = x
 				scrapeTarget.data[name] = y
 			} else {
-
+				fmt.Println("*** Changed!!!")
 				var y = scrapeTarget.data[name]
 				var x = y.label[label]
 				x.unchangedCounter++
@@ -175,7 +202,6 @@ func (scrapeTarget *ScrapeTarget) handler(w http.ResponseWriter, r *http.Request
 		if content.commentType == summary { // not supported, because complicated
 			continue
 		}
-
 		var labelText string
 		isAnyLabelActive := false
 		for label, value := range content.label {
@@ -216,22 +242,59 @@ func main() {
 		portPair = append(portPair, i)
 	}
 
+	requestChannel := make(chan DataMessage, 1)
+
+	datastore := make(map[int]map[string]MetricData)
+
 	for len(portPair) >= 2 {
 		var remotePort, localPort int
 		remotePort, portPair = portPair[0], portPair[1:]
 		localPort, portPair = portPair[0], portPair[1:]
+		datastore[remotePort] = make(map[string]MetricData)
 
-		go listener(remotePort, localPort)
+		go listener(remotePort, localPort, requestChannel, datastore[remotePort])
 	}
 
-	fmt.Printf("Press Ctrl+C to end\n")
-	WaitForCtrlC()
-	fmt.Printf("\n")
+	for {
+		fromRoutines := <-requestChannel
+		if fromRoutines.operation == Get {
+			// fmt.Println(fromRoutines.operation, fromRoutines.port, fromRoutines.key)
+
+			if _, ok := datastore[fromRoutines.port][fromRoutines.key]; !ok {
+
+				// Unchanged counter value should be initialized differently if we want
+				// to start with assuming that all value are stale, or if we want to
+				// start by assuming that all values are "live" and then gradually
+				// put them in "stale" status.
+				// * -1, assume all values are live
+				// * threshold value, assume all values are stale to begin with
+
+				var content MetricData
+				for thing, labelSet := range content.label {
+					if startStale {
+						labelSet.unchangedCounter = staleThreshold
+						content.label[thing] = labelSet
+					} else {
+						labelSet.unchangedCounter = -1
+						content.label[thing] = labelSet
+					}
+				}
+
+				datastore[fromRoutines.port][fromRoutines.key] = content
+				fromRoutines.sender <- content
+			} else {
+				fromRoutines.sender <- datastore[fromRoutines.port][fromRoutines.key]
+			}
+			// fmt.Println(datastore[fromRoutines.port][fromRoutines.key])
+
+		}
+
+	}
 }
 
-func listener(queryPort, listenport int) {
-	scrapeTarget := &ScrapeTarget{queryPort: queryPort}
-	scrapeTarget.data = make(map[string]MetricData)
+func listener(queryPort, listenport int, requestChannel chan DataMessage, data map[string]MetricData) {
+	scrapeTarget := &ScrapeTarget{queryPort: queryPort, requestChannel: requestChannel}
+	scrapeTarget.data = data
 	mux := http.NewServeMux()
 	mux.HandleFunc(basePath, scrapeTarget.handler)
 	log.Fatal(http.ListenAndServe(`:`+strconv.Itoa(listenport), mux))
